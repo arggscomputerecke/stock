@@ -5,6 +5,7 @@
 #include <fstream>
 #include <math.h>
 #include "TDatime.h"
+#include <memory>
 
 
 using namespace std;
@@ -29,21 +30,66 @@ std::string remove_path_and_extension(const std::string& buffer) {
   auto k = buffer.find_last_of('\\');
 
   int lastslash = 0;
-  if (j != string::npos && k != string::npos){
+  if (j != string::npos && k != string::npos) {
     lastslash = std::max(j, k);
   }
   else if (j != string::npos)
   {
     lastslash = j;
   }
-  else if(k != string::npos){
+  else if (k != string::npos) {
     lastslash = k;
   }
-  
 
-  auto t =  buffer.substr(lastslash + 1,i-lastslash-1);
+
+  auto t = buffer.substr(lastslash + 1, i - lastslash - 1);
   return t;
 }
+
+class readinBase {
+public:
+  readinBase(TTree* tree, char delim) :m_tree(tree), m_delim(delim) {}
+  virtual bool readBuffer(std::istream&) = 0;
+  TTree *m_tree;
+  std::string m_buffer;
+  const char m_delim;
+};
+
+class readin_doubles :public readinBase {
+public:
+  readin_doubles(TTree * tree, const char* name, char delim = ',') :readinBase(tree, delim) {
+    tree->Branch(name, &m_data);
+  }
+  virtual bool readBuffer(std::istream& in) {
+    getline(in, m_buffer, m_delim);
+    if (m_buffer.empty())
+    {
+      return false;
+    }
+    m_data = str2double(m_buffer);
+  };
+  double m_data;
+
+};
+
+class readin_dates :public readinBase {
+public:
+  readin_dates(TTree * tree, const char* name, char delim = ',') :readinBase(tree, delim) {
+    tree->Branch(name, &m_data);
+  }
+  virtual bool readBuffer(std::istream& in) {
+    getline(in, m_buffer, m_delim);
+    if (m_buffer.empty())
+    {
+      return false;
+    }
+    m_data = date2int(m_buffer);
+    return true;
+  };
+  unsigned m_data;
+
+};
+
 int main(int argc, char **argv) {
   CmdLine cmd("ProcessFile", ' ', "0.1");
   ValueArg<std::string> FileNameArg("i", "inFile", "csv file", true, "", "string");
@@ -54,24 +100,23 @@ int main(int argc, char **argv) {
   cmd.add(outFile);
   cmd.parse(argc, argv);  //terminates on error
 
+
+
+
+  TFile outF(outFile.getValue().c_str(), "Recreate");
+
+
+  TTree tree(remove_path_and_extension(FileNameArg.getValue()).c_str(), "data");
+
+  std::vector<std::shared_ptr<readinBase>> processors;
+  processors.push_back( std::make_shared<readin_dates>( &tree,"Date" ));
+  processors.push_back(std::make_shared<readin_doubles>(&tree, "Open"));
+  processors.push_back(std::make_shared<readin_doubles>(&tree, "High"));
+  processors.push_back(std::make_shared<readin_doubles>(&tree, "Low"));
+  processors.push_back(std::make_shared<readin_doubles>(&tree, "Close"));
+  processors.push_back(std::make_shared<readin_doubles>(&tree, "Volume"));
+  processors.push_back(std::make_shared<readin_doubles>(&tree, "AdjClose",'\n'));
   
-
-
-  TFile outF(outFile.getValue().c_str(), "update");
-
-
-  TTree tree(remove_path_and_extension(FileNameArg.getValue()).c_str(),"data"); 
-  unsigned date = 0;
-    double Open, High, Low, Close, Volume, AdjClose;
-
-
-  tree.Branch("Date", &date);
-  tree.Branch("Open", &Open);
-  tree.Branch("High", &High);
-  tree.Branch("Low", &Low);
-  tree.Branch("Close", &Close);
-  tree.Branch("Volume", &Volume);
-  tree.Branch("AdjClose", &AdjClose);
 
 
   std::ifstream in(FileNameArg.getValue().c_str());
@@ -82,26 +127,10 @@ int main(int argc, char **argv) {
 
   while (in.good())
   {
-    getline(in, buffer, ',');
-    if (buffer.empty())
+    for (auto&e:processors)
     {
-      break;
+      e->readBuffer(in);
     }
-    date = date2int(buffer);
-    
-    getline(in, buffer, ',');
-    Open = str2double(buffer);
-
-    getline(in, buffer, ',');
-    High= str2double(buffer);
-    getline(in, buffer, ',');
-    Low = str2double(buffer);
-    getline(in, buffer, ',');
-    Close = str2double(buffer);
-    getline(in, buffer, ',');
-    Volume = str2double(buffer);
-    getline(in, buffer, '\n');
-    AdjClose = str2double(buffer);
 
     tree.Fill();
 
