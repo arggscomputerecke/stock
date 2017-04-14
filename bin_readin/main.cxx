@@ -7,24 +7,15 @@
 #include "TDatime.h"
 #include <memory>
 #include <algorithm>
-
+#include "reader_base.hh"
 
 using namespace std;
 using namespace TCLAP;
 
 
-unsigned date2int(const std::string& date) {
-  int year = atoi(date.substr(0, 4).c_str());
-  int month = atoi(date.substr(5, 2).c_str());
-  int day = atoi(date.substr(8, 2).c_str());
-  TDatime d(year, month, day, 0, 0, 0);
-  return d.Get();
-}
 
-double str2double(const std::string& date) {
-  return atof(date.c_str());
 
-}
+
 std::string remove_path_and_extension(const std::string& buffer) {
   auto i = buffer.find_last_of('.');
   auto j = buffer.find_last_of('/');
@@ -46,95 +37,13 @@ std::string remove_path_and_extension(const std::string& buffer) {
   auto t = buffer.substr(lastslash + 1, i - lastslash - 1);
   return t;
 }
-std::string remove_white_spaces(const std::string& name) {
-  std::string ret(name);
-  std::replace(ret.begin(), ret.end(), ' ', '_'); 
-  return ret;
-}
-
-class readinBase {
-public:
-  readinBase(TTree* tree, const std::string& name, char delim) :m_tree(tree), m_name(name), m_delim(delim) {}
-  virtual bool readBuffer(std::istream&) = 0;
-  TTree *m_tree;
-  std::string m_buffer;
-  std::string m_name;
-  const char m_delim;
-};
-
-typedef readinBase*(*reader_creator)(TTree * tree, const std::string& name, char delim);
-using r_map = std::map<std::string, reader_creator>;
-
-r_map& get_register() {
-  static r_map map;
-  return map;
-}
-
-void register_readin(const std::string& type, reader_creator fun) {
-  get_register()[type] = fun;
-}
-std::shared_ptr<readinBase> create_readin(const std::string& type, TTree * tree, const std::string& name, char delim = ',') {
-  return std::shared_ptr<readinBase>(  get_register()[type](tree, name, delim));
-}
-
-class readin_doubles :public readinBase {
-public:
-  readin_doubles(TTree * tree, const std::string& name, char delim = ',') :readinBase(tree,name, delim) {
-    tree->Branch(remove_white_spaces(name).c_str(), &m_data);
-  }
-  virtual bool readBuffer(std::istream& in) {
-    getline(in, m_buffer, m_delim);
-    if (m_buffer.empty())
-    {
-      return false;
-    }
-    m_data = str2double(m_buffer);
-  };
-  double m_data;
-  
-};
-namespace {
-  readinBase* create_readin_doubles(TTree * tree, const std::string& name, char delim) {
-    return new readin_doubles(tree, name, delim);
-  }
-  class __register_readin_doubles {
-  public:
-    __register_readin_doubles() {
-      register_readin("D", &create_readin_doubles);
-    }
-  } ___regD;
-}
 
 
-class readin_dates :public readinBase {
-public:
-  readin_dates(TTree * tree, const std::string& name, char delim = ',') :readinBase(tree,name, delim) {
-    tree->Branch(remove_white_spaces(name).c_str(), &m_data);
-  }
-  virtual bool readBuffer(std::istream& in) {
-    getline(in, m_buffer, m_delim);
-    if (m_buffer.empty())
-    {
-      return false;
-    }
-    m_data = date2int(m_buffer);
-    return true;
-  };
-  unsigned m_data;
 
-};
 
-namespace {
-  readinBase* create_readin_dates(TTree * tree, const std::string& name, char delim) {
-    return new readin_dates(tree, name, delim);
-  }
-  class __register_readin_dates {
-  public:
-    __register_readin_dates() {
-      register_readin("T", &create_readin_dates);
-    }
-  } ___regT;
-}
+
+
+
 
 
 
@@ -201,7 +110,7 @@ int main(int argc, char **argv) {
 
   std::string buffer;
   getline(in, buffer);
-  auto s = split(buffer);
+
 
   auto processors = create_processors(buffer, str_format.getValue(),&tree);
 
@@ -212,9 +121,7 @@ int main(int argc, char **argv) {
     {
       e->readBuffer(in);
     }
-    i++;
     tree.Fill();
-
   }
   tree.Write();
   outF.Write("", TObject::kOverwrite);
